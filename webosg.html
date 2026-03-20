@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebOS Grand Enterprise — Platinum Edition</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --border: #30363d;
+    --green: #39d353; --blue: #58a6ff; --yellow: #e3b341; --red: #f85149;
+    --cyan: #79c0ff; --magenta: #d2a8ff; --white: #c9d1d9; --dim: #6e7681;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { height: 100vh; background: var(--bg); color: var(--white); font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow: hidden; display: flex; flex-direction: column; }
+  
+  #taskbar { height: 32px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 15px; font-size: 11px; flex-shrink: 0; z-index: 100; }
+  .logo { color: var(--green); font-weight: 800; margin-right: 20px; }
+  
+  #main { flex: 1; display: flex; overflow: hidden; position: relative; }
+  #sidebar { width: 220px; background: var(--bg2); border-right: 1px solid var(--border); padding: 15px 0; font-size: 11px; overflow-y: auto; flex-shrink: 0; }
+  .sb-group { margin-bottom: 20px; }
+  .sb-label { padding: 0 15px 5px 15px; color: var(--dim); text-transform: uppercase; font-size: 10px; font-weight: bold; }
+  .sb-item { padding: 6px 15px; cursor: pointer; color: var(--white); display: flex; align-items: center; gap: 8px; }
+  .sb-item:hover { background: var(--bg3); color: var(--blue); }
+
+  /* System Gauges */
+  .gauge-container { padding: 0 15px; margin-top: 5px; }
+  .gauge-bg { height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+  .gauge-fill { height: 100%; background: var(--green); width: 0%; transition: width 0.5s ease; }
+
+  #terminal-wrapper { flex: 1; display: flex; flex-direction: column; background: var(--bg); position: relative; overflow: hidden; }
+  #terminal { flex: 1; padding: 15px; overflow-y: auto; outline: none; }
+  .line { line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin-bottom: 2px; }
+  .prompt { color: var(--green); font-weight: bold; }
+  .path { color: var(--blue); }
+  .error { color: var(--red); }
+  .info { color: var(--cyan); }
+  .success { color: var(--green); }
+
+  #input-line { display: flex; align-items: flex-start; margin-top: 5px; }
+  #cmd-input { background: transparent; border: none; outline: none; color: inherit; font-family: inherit; font-size: inherit; flex: 1; margin-left: 8px; }
+
+  #overlay-screen { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; z-index: 200; display: none; flex-direction: column; }
+  #overlay-header { background: #eee; color: #000; padding: 4px 15px; font-weight: bold; display: flex; justify-content: space-between; }
+  #overlay-body { flex: 1; padding: 20px; color: #fff; overflow-y: auto; white-space: pre-wrap; font-size: 14px; }
+  #nano-ui { flex: 1; display: none; flex-direction: column; }
+  #nano-textarea { flex: 1; background: black; color: white; border: none; padding: 15px; font-family: inherit; outline: none; resize: none; font-size: 14px; }
+  #overlay-footer { background: #eee; color: #000; padding: 4px 15px; font-size: 11px; text-align: center; }
+
+  #footer { height: 25px; background: var(--bg2); border-top: 1px solid var(--border); display: flex; align-items: center; padding: 0 15px; font-size: 10px; color: var(--dim); justify-content: space-between; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div id="taskbar">
+  <div class="logo">🐧 WEBOS PLATINUM</div>
+  <span>Uptime: <span id="uptime-val">0s</span></span>
+  <div style="margin-left: auto; display: flex; gap: 20px;">
+    <span>USER: <span id="user-status" style="color:var(--yellow)">guest</span></span>
+    <span>GIT: <span id="git-status" style="color:var(--dim)">none</span></span>
+    <span id="clock" style="color:var(--cyan)">00:00:00</span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="sidebar">
+    <div class="sb-group">
+      <div class="sb-label">System Load</div>
+      <div class="gauge-container">
+        CPU <div class="gauge-bg"><div id="cpu-gauge" class="gauge-fill"></div></div>
+      </div>
+      <div class="gauge-container">
+        RAM <div class="gauge-bg"><div id="ram-gauge" class="gauge-fill"></div></div>
+      </div>
+    </div>
+    <div class="sb-group">
+      <div class="sb-label">Manuals</div>
+      <div class="sb-item" onclick="run('man sudo')">man sudo</div>
+      <div class="sb-item" onclick="run('man git')">man git</div>
+    </div>
+    <div class="sb-group">
+      <div class="sb-label">Account</div>
+      <div class="sb-item" onclick="run('whoami')">Who Am I</div>
+      <div class="sb-item" onclick="run('sudo ls /root')">Root Access</div>
+    </div>
+    <div class="sb-group">
+      <div class="sb-label">Storage</div>
+      <div class="sb-item" onclick="Shell.clearStorage()">Factory Reset</div>
+    </div>
+  </div>
+
+  <div id="terminal-wrapper">
+    <div id="terminal" onclick="focusInput()">
+      <div id="history-box"></div>
+      <div id="input-line">
+        <span class="prompt" id="prompt-label">guest@webos</span>:<span class="path" id="cur-path">~</span>$ 
+        <input type="text" id="cmd-input" autofocus spellcheck="false" autocomplete="off">
+      </div>
+    </div>
+
+    <div id="overlay-screen">
+      <div id="overlay-header"><span id="ov-title">SCREEN</span><span id="ov-filename"></span></div>
+      <div id="overlay-body"></div>
+      <div id="nano-ui"><textarea id="nano-textarea"></textarea></div>
+      <div id="overlay-footer">Press 'Q' or 'Ctrl+X' to Close & Save</div>
+    </div>
+  </div>
+</div>
+
+<div id="footer">
+  <span>Platinum v3.5 (Stable)</span>
+  <span id="status-msg">Storage Linked: LocalBrowser</span>
+  <span>Connected: 127.0.0.1</span>
+</div>
+
+<script>
+/* --- VIRTUAL FILESYSTEM & PERSISTENCE --- */
+const DEFAULT_FS = {
+  tree: {
+    '/': { type: 'd', children: ['bin', 'etc', 'home', 'var', 'tmp', 'root'] },
+    '/bin': { type: 'd', children: ['ls','pwd','cat','mkdir','rm','touch','mv','cp','man','git','grep','sort','uniq','wc','head','tail','uptime','free','df','nano','clear','sudo','whoami'] },
+    '/etc/os-release': { type: 'f', content: 'NAME="WebOS Platinum"\nVERSION="2026.06"\nBUILD="9900"' },
+    '/etc/motd': { type: 'f', content: 'Welcome! Tab completion and persistence enabled.\nDefault sudo pass: admin' },
+    '/home/guest': { type: 'd', children: ['notes.txt', 'data.csv'] },
+    '/home/guest/notes.txt': { type: 'f', content: 'WebOS v3.5 is now persistent!' },
+    '/home/guest/data.csv': { type: 'f', content: 'zulu\nalpha\nbravo\nalpha\ndelta' },
+    '/root': { type: 'd', perms: '700', children: ['.secret'] },
+    '/root/.secret': { type: 'f', content: 'Congrats! You found the root flag.' },
+    '/var/log/syslog': { type: 'f', content: 'Storage Engine: Persistent (Local)' }
+  },
+  git: { initialized: false, staged: [], commits: [] },
+  history: []
+};
+
+let FS = JSON.parse(localStorage.getItem('webos_fs')) || DEFAULT_FS;
+
+function saveSystem() {
+    localStorage.setItem('webos_fs', JSON.stringify(FS));
+    localStorage.setItem('webos_hist', JSON.stringify(Shell.history));
+}
+
+/* --- SHELL LOGIC --- */
+const Shell = {
+  cwd: '/home/guest',
+  history: JSON.parse(localStorage.getItem('webos_hist')) || [],
+  hIdx: 0,
+  locked: false,
+  isRoot: false,
+  activeNanoPath: null,
+  manuals: {
+    'sudo': 'NAME\n  sudo - execute a command as another user (root)\n\nSYNOPSIS\n  sudo [command]\n\nDESCRIPTION\n  By default, uses password "admin".',
+    'git': 'NAME\n  git - simulated content tracker\n\nCOMMANDS\n  init, add, status, commit',
+    'nano': 'NAME\n  nano - simple full-screen editor\n\nCONTROLS\n  Ctrl+X to save and exit.'
+  },
+
+  exec(raw) {
+    if (this.locked || !raw.trim()) return;
+    this.history.push(raw);
+    this.hIdx = this.history.length;
+    const prompt = this.isRoot ? 'root@webos' : 'guest@webos';
+    this.printLine(`<span class="prompt">${prompt}</span>:<span class="path">${this.getDisplayCwd()}</span>$ ${raw}`);
+
+    if (raw.includes('>')) {
+      const [cmd, file] = raw.split('>').map(s => s.trim());
+      const res = this.runPipeline(cmd);
+      if (!res.error) {
+        this.writeFile(this.resolve(file, this.cwd), res.data);
+        saveSystem();
+      } else {
+        this.printLine(res.data, 'error');
+      }
+      return;
+    }
+
+    const res = this.runPipeline(raw);
+    if (res.data !== null) this.printLine(res.data, res.error ? 'error' : '');
+    this.updateUI();
+    saveSystem();
+  },
+
+  runPipeline(input) {
+    const segments = input.split('|').map(s => s.trim());
+    let currentData = "";
+    for (let i = 0; i < segments.length; i++) {
+      const args = segments[i].split(/\s+/);
+      const cmd = args.shift();
+      
+      if (!this.commands[cmd]) {
+        return { data: `bash: ${cmd}: command not found`, error: true };
+      }
+      
+      const output = this.commands[cmd](args, currentData);
+      if (output && typeof output === 'object' && output.error) return output;
+      currentData = output;
+    }
+    return { data: currentData, error: false };
+  },
+
+  resolve(path, cwd) {
+    if (!path || path === '~') return '/home/guest';
+    let absolute = path.startsWith('/') ? path : (cwd === '/' ? '' : cwd) + '/' + path;
+    let parts = absolute.split('/').filter(p => p && p !== '.');
+    let stack = [];
+    for (let p of parts) { if (p === '..') stack.pop(); else stack.push(p); }
+    return '/' + stack.join('/');
+  },
+
+  getDisplayCwd() {
+    return this.cwd === '/home/guest' ? '~' : this.cwd;
+  },
+
+  printLine(html, type='') {
+    const div = document.createElement('div');
+    div.className = 'line ' + type;
+    div.innerHTML = html;
+    document.getElementById('history-box').appendChild(div);
+    document.getElementById('terminal').scrollTop = 99999;
+  },
+
+  updateUI() {
+    document.getElementById('cur-path').textContent = this.getDisplayCwd();
+    document.getElementById('git-status').textContent = FS.git.initialized ? 'master' : 'none';
+    document.getElementById('user-status').textContent = this.isRoot ? 'root' : 'guest';
+    document.getElementById('user-status').style.color = this.isRoot ? 'var(--red)' : 'var(--yellow)';
+    document.getElementById('prompt-label').textContent = (this.isRoot ? 'root' : 'guest') + '@webos';
+  },
+
+  writeFile(path, content) {
+    const segments = path.split('/');
+    const name = segments.pop();
+    const parent = segments.join('/') || '/';
+    if (!FS.tree[parent]) FS.tree[parent] = { type: 'd', children: [] };
+    if (!FS.tree[parent].children.includes(name)) FS.tree[parent].children.push(name);
+    FS.tree[path] = { type: 'f', content: content };
+  },
+
+  clearStorage() {
+    if(confirm("Factory Reset? All files will be deleted.")) {
+        localStorage.removeItem('webos_fs');
+        localStorage.removeItem('webos_hist');
+        location.reload();
+    }
+  },
+
+  commands: {
+    pwd: () => Shell.cwd,
+    find: (args) => {
+      const target = args[0] || ".";
+      const startPath = Shell.resolve(target, Shell.cwd);
+      
+      // Filter all keys in the filesystem that begin with our startPath
+      const matches = Object.keys(FS.tree).filter(path => 
+        path.startsWith(startPath) && path !== startPath
+      );
+
+      if (matches.length === 0) {
+        return { data: `find: ${target}: No such file or directory`, error: true };
+      }
+
+      return matches.join('\n');
+    },
+    whoami: () => Shell.isRoot ? 'root' : 'guest',
+    ls: (args) => {
+      const path = Shell.resolve(args.find(a => !a.startsWith('-')) || '.', Shell.cwd);
+      if (path.startsWith('/root') && !Shell.isRoot) return { data: "ls: /root: Permission denied", error: true };
+      return FS.tree[path] ? FS.tree[path].children.join('  ') : { data: `ls: ${path}: No such directory`, error: true };
+    },
+    sudo: (args) => {
+      const pass = prompt("[sudo] password for guest:");
+      if (pass === "admin") {
+        Shell.isRoot = true;
+        Shell.updateUI();
+        if (args.length > 0) {
+            const res = Shell.runPipeline(args.join(' '));
+            Shell.isRoot = false; // Temporary sudo
+            Shell.updateUI();
+            return res.data;
+        }
+        return "Validated. Session escalated.";
+      }
+      return { data: "sudo: incorrect password", error: true };
+    },
+    cat: (args, pipeIn) => {
+      if (pipeIn) return pipeIn;
+      const path = Shell.resolve(args[0], Shell.cwd);
+      if (path.startsWith('/root') && !Shell.isRoot) return { data: "cat: Permission denied", error: true };
+      return FS.tree[path] ? FS.tree[path].content : { data: `cat: ${args[0]}: No such file`, error: true };
+    },
+    man: (args) => {
+      const target = args[0];
+      if (!Shell.manuals[target]) return `No manual entry for ${target}`;
+      Shell.locked = true;
+      document.getElementById('overlay-screen').style.display = 'flex';
+      document.getElementById('ov-title').textContent = `MANUAL: ${target.toUpperCase()}`;
+      document.getElementById('overlay-body').textContent = Shell.manuals[target];
+      document.getElementById('overlay-body').style.display = 'block';
+      document.getElementById('nano-ui').style.display = 'none';
+      return null;
+    },
+    nano: (args) => {
+      const path = Shell.resolve(args[0] || 'new_file.txt', Shell.cwd);
+      Shell.activeNanoPath = path;
+      Shell.locked = true;
+      document.getElementById('overlay-screen').style.display = 'flex';
+      document.getElementById('ov-title').textContent = `NANO: ${args[0] || 'new_file.txt'}`;
+      document.getElementById('overlay-body').style.display = 'none';
+      document.getElementById('nano-ui').style.display = 'flex';
+      document.getElementById('nano-textarea').value = FS.tree[path]?.content || "";
+      document.getElementById('nano-textarea').focus();
+      return null;
+    },
+    git: (args) => {
+      const sub = args[0];
+      if (sub === 'init') { FS.git.initialized = true; return "Initialized empty Git repository."; }
+      if (!FS.git.initialized) return { data: "fatal: not a git repository", error: true };
+      if (sub === 'status') return FS.git.staged.length ? `Staged: ${FS.git.staged.join(', ')}` : "Nothing to commit.";
+      if (sub === 'add') { FS.git.staged.push(args[1]); return `added ${args[1]}`; }
+      return "git: init, status, add";
+    },
+    uptime: () => `up ${Math.floor((Date.now()-bootTime)/1000)}s, 1 user, load 0.05`,
+    grep: (args, pipeIn) => pipeIn.split('\n').filter(l => l.includes(args[0])).join('\n'),
+    clear: () => { document.getElementById('history-box').innerHTML = ""; return null; },
+    help: () => "Tab = AutoComplete | Ctrl+X = Save Nano\nCommands: ls, pwd, cat, man, git, nano, sudo, clear"
+  }
+};
+
+/* --- INPUT & TAB COMPLETION --- */
+const cmdInput = document.getElementById('cmd-input');
+cmdInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { Shell.exec(cmdInput.value); cmdInput.value = ""; }
+  if (e.key === 'ArrowUp' && Shell.hIdx > 0) cmdInput.value = Shell.history[--Shell.hIdx];
+  if (e.key === 'ArrowDown' && Shell.hIdx < Shell.history.length-1) cmdInput.value = Shell.history[++Shell.hIdx];
+  
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const current = cmdInput.value.split(' ').pop();
+    if (!current) return;
+    const files = FS.tree[Shell.cwd]?.children || [];
+    const commands = Object.keys(Shell.commands);
+    const matches = [...files, ...commands].filter(f => f.startsWith(current));
+    if (matches.length === 1) {
+        const parts = cmdInput.value.split(' ');
+        parts[parts.length - 1] = matches[0];
+        cmdInput.value = parts.join(' ');
+    }
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  if (Shell.locked) {
+    if (e.key.toLowerCase() === 'q' && document.getElementById('nano-ui').style.display !== 'flex') {
+      document.getElementById('overlay-screen').style.display = 'none';
+      Shell.locked = false; cmdInput.focus();
+    }
+    if (e.ctrlKey && e.key === 'x') {
+      if (Shell.activeNanoPath) {
+        Shell.writeFile(Shell.activeNanoPath, document.getElementById('nano-textarea').value);
+        Shell.activeNanoPath = null; saveSystem();
+      }
+      document.getElementById('overlay-screen').style.display = 'none';
+      Shell.locked = false; cmdInput.focus();
+    }
+  }
+});
+
+/* --- BOOT & GAUGES --- */
+const bootTime = Date.now();
+setInterval(() => {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+  document.getElementById('uptime-val').textContent = Math.floor((Date.now()-bootTime)/1000) + 's';
+  
+  // Random dynamic gauges
+  document.getElementById('cpu-gauge').style.width = (Math.random() * 20 + 5) + '%';
+  document.getElementById('ram-gauge').style.width = '42%';
+}, 1000);
+
+function focusInput() { if(!Shell.locked) cmdInput.focus(); }
+function run(c) { Shell.exec(c); }
+
+Shell.printLine("WebOS Platinum v3.5 Secure Boot...", "info");
+Shell.printLine("Storage linked. Persistent session active.", "success");
+Shell.updateUI();
+</script>
+</body>
+</html>
